@@ -9,11 +9,18 @@ public class Card : MonoBehaviour, IBeginDragHandler, IEndDragHandler, IDragHand
     [SerializeField] private Sprite _faceSprite;
     [SerializeField] private Sprite _backSprite;
     [SerializeField] private bool _opened;
+
+    //TODO: move to scriptable object
     [SerializeField] private float _openTimeSeconds = 0.3f;
     [SerializeField] private float _followSpeed = 15f;
-    [SerializeField] private float _tiltAmount = 10f;
-    [SerializeField] private float _tiltSpeed = 5f;
-    [SerializeField] private float _springDamping = 5f;
+
+    [SerializeField] private float _tiltAmountZ = 12f;
+    [SerializeField] private float _tiltFromYFactor = 0.3f;
+    [SerializeField] private float _springDamping = 6f;
+    [SerializeField] private float _returnDamping = 12f;
+
+    [SerializeField] float _idleSpeedThreshold = 60f;
+    [SerializeField] float _deadZone = 20f;
 
     private Tweener _scaleTweener;
 
@@ -21,10 +28,8 @@ public class Card : MonoBehaviour, IBeginDragHandler, IEndDragHandler, IDragHand
     private Vector3 _targetPosition;
     private Vector3 _lastPosition;
 
-    private float _currentTiltX;
-    private float _currentTiltY;
-    private float _tiltVelX; // внутренние скорости для SmoothDamp
-    private float _tiltVelY;
+    private float _currentTiltZ;
+    private float _tiltVelZ;
 
     private void Start()
     {
@@ -35,31 +40,29 @@ public class Card : MonoBehaviour, IBeginDragHandler, IEndDragHandler, IDragHand
     {
         if (_isDragging)
         {
-            transform.position = Vector3.Lerp(
-                transform.position,
-                _targetPosition,
-                Time.deltaTime * _followSpeed
-            );
+            transform.position = Vector3.Lerp(transform.position, _targetPosition, Time.deltaTime * _followSpeed);
 
-            var velocity = (transform.position - _lastPosition) / Time.deltaTime;
+            var delta = transform.position - _lastPosition;
+            var speed = (float)(delta.magnitude / Mathf.Max(Time.deltaTime, 0.0001f));
             _lastPosition = transform.position;
 
-            float targetTiltX = Mathf.Clamp(-velocity.y, -1, 1) * _tiltAmount;
-            float targetTiltY = Mathf.Clamp(velocity.x, -1, 1) * _tiltAmount;
+        
+            var raw = (float)(-delta.x / Mathf.Max(Time.deltaTime, 0.0001f) + (delta.y / Mathf.Max(Time.deltaTime, 0.0001f)) * _tiltFromYFactor);
+            var targetTiltZ = (speed < _deadZone) ? 0f : Mathf.Clamp(raw, -_idleSpeedThreshold, _idleSpeedThreshold) / _idleSpeedThreshold * _tiltAmountZ;
+            var damping = (speed <= _idleSpeedThreshold) ? _returnDamping : _springDamping;
 
-            // плавное приближение углов к цели
-            _currentTiltX = Mathf.SmoothDampAngle(_currentTiltX, targetTiltX, ref _tiltVelX, 1f / _springDamping);
-            _currentTiltY = Mathf.SmoothDampAngle(_currentTiltY, targetTiltY, ref _tiltVelY, 1f / _springDamping);
+            _currentTiltZ = Mathf.SmoothDampAngle(_currentTiltZ, targetTiltZ, ref _tiltVelZ, 1f / damping);
         }
         else
         {
-            // если отпустили — возвращаем к нулю с пружинкой
-            _currentTiltX = Mathf.SmoothDampAngle(_currentTiltX, 0, ref _tiltVelX, 1f / _springDamping);
-            _currentTiltY = Mathf.SmoothDampAngle(_currentTiltY, 0, ref _tiltVelY, 1f / _springDamping);
+            _currentTiltZ = Mathf.SmoothDampAngle(_currentTiltZ, 0f, ref _tiltVelZ, 1f / _returnDamping);
         }
 
-        // применяем наклон
-        transform.rotation = Quaternion.Euler(_currentTiltX, _currentTiltY, 0);
+        var euler = transform.localEulerAngles;
+        euler.x = 0f; 
+        euler.y = 0f;
+        euler.z = _currentTiltZ;
+        transform.localEulerAngles = euler;
     }
 
     void IBeginDragHandler.OnBeginDrag(PointerEventData eventData)
